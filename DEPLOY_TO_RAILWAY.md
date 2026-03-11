@@ -44,11 +44,11 @@ Your project is ready! All files are configured.
 
 ```
 GROQ_API_KEY=your_groq_api_key_here
-SMARTFLO_API_KEY=e14eaea9-51d2-46e9-9ebb-6c60cdff8a1e
-SMARTFLO_DID_NUMBER=918069879428
+SMARTFLO_API_KEY=your_smartflo_api_key_here
+SMARTFLO_DID_NUMBER=your_did_number_here
 PORT=3000
 AWS_ACCESS_KEY_ID=your_aws_access_key_here
-AWS_SECRET_ACCESS_KEY=CClPnjrg5vRi2ZDCV9De+cdzY3fzKtMx10BPZFiD
+AWS_SECRET_ACCESS_KEY=your_aws_secret_key_here
 AWS_REGION=ap-south-1
 POLLY_VOICE_ID=Kajal
 POLLY_ENGINE=neural
