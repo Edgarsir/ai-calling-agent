@@ -1,0 +1,212 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI Call Me Now</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            padding: 20px;
+        }
+        .container {
+            background: white;
+            border-radius: 20px;
+            padding: 40px;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+            max-width: 400px;
+            width: 100%;
+            text-align: center;
+        }
+        h1 {
+            color: #333;
+            margin-bottom: 10px;
+            font-size: 32px;
+        }
+        .subtitle {
+            color: #666;
+            margin-bottom: 30px;
+            font-size: 14px;
+        }
+        .phone-display {
+            background: #f8f9fa;
+            padding: 20px;
+            border-radius: 10px;
+            margin-bottom: 20px;
+            font-size: 24px;
+            font-weight: bold;
+            color: #667eea;
+        }
+        .big-button {
+            width: 150px;
+            height: 150px;
+            border-radius: 50%;
+            background: linear-gradient(135deg, #4caf50 0%, #45a049 100%);
+            border: none;
+            color: white;
+            font-size: 60px;
+            cursor: pointer;
+            margin: 20px auto;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            box-shadow: 0 10px 30px rgba(76, 175, 80, 0.4);
+            transition: all 0.3s;
+        }
+        .big-button:hover {
+            transform: scale(1.1);
+            box-shadow: 0 15px 40px rgba(76, 175, 80, 0.6);
+        }
+        .big-button:active {
+            transform: scale(0.95);
+        }
+        .big-button:disabled {
+            background: #ccc;
+            cursor: not-allowed;
+            transform: scale(1);
+        }
+        .status {
+            margin-top: 20px;
+            padding: 15px;
+            border-radius: 8px;
+            display: none;
+            font-size: 16px;
+        }
+        .status.success {
+            background: #d4edda;
+            color: #155724;
+            border: 1px solid #c3e6cb;
+        }
+        .status.error {
+            background: #f8d7da;
+            color: #721c24;
+            border: 1px solid #f5c6cb;
+        }
+        .status.calling {
+            background: #fff3cd;
+            color: #856404;
+            border: 1px solid #ffeaa7;
+        }
+        .form-group {
+            margin-bottom: 20px;
+        }
+        input[type="tel"] {
+            width: 100%;
+            padding: 15px;
+            border: 2px solid #ddd;
+            border-radius: 10px;
+            font-size: 18px;
+            text-align: center;
+            transition: border-color 0.3s;
+        }
+        input[type="tel"]:focus {
+            outline: none;
+            border-color: #667eea;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>📞 AI Call Me</h1>
+        <p class="subtitle">Get an instant call from the AI agent</p>
+
+        <div class="form-group">
+            <input 
+                type="tel" 
+                id="myNumber" 
+                placeholder="Enter your number"
+                value="+91"
+            >
+            <small style="color: #666; display: block; margin-top: 8px;">
+                Format: +91XXXXXXXXXX
+            </small>
+        </div>
+
+        <button class="big-button" id="callButton" onclick="callMe()">
+            📞
+        </button>
+
+        <div id="status" class="status"></div>
+
+        <div style="margin-top: 30px; padding: 15px; background: #e3f2fd; border-radius: 8px; font-size: 14px; color: #1976d2;">
+            <strong>💡 How it works:</strong><br>
+            Click the button and the AI will call you within seconds!
+        </div>
+    </div>
+
+    <script>
+        async function callMe() {
+            const phoneNumber = document.getElementById('myNumber').value.trim();
+            const statusDiv = document.getElementById('status');
+            const button = document.getElementById('callButton');
+            
+            // Validate phone number
+            if (!phoneNumber || phoneNumber.length < 10) {
+                statusDiv.className = 'status error';
+                statusDiv.innerHTML = '❌ Please enter a valid phone number';
+                statusDiv.style.display = 'block';
+                return;
+            }
+            
+            // Disable button
+            button.disabled = true;
+            button.innerHTML = '⏳';
+            
+            statusDiv.className = 'status calling';
+            statusDiv.innerHTML = '📞 Calling you now... Please wait!';
+            statusDiv.style.display = 'block';
+            
+            try {
+                const response = await fetch('/call/outbound', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ to: phoneNumber })
+                });
+                
+                const data = await response.json();
+                
+                if (response.ok) {
+                    statusDiv.className = 'status success';
+                    statusDiv.innerHTML = `
+                        ✅ <strong>Calling ${phoneNumber}!</strong><br>
+                        <small>Pick up your phone in a few seconds...</small>
+                    `;
+                } else {
+                    throw new Error(data.error || 'Failed to make call');
+                }
+            } catch (error) {
+                statusDiv.className = 'status error';
+                statusDiv.innerHTML = `
+                    ❌ <strong>Error:</strong> ${error.message}<br>
+                    <small>Please try again</small>
+                `;
+            } finally {
+                // Re-enable button after 5 seconds
+                setTimeout(() => {
+                    button.disabled = false;
+                    button.innerHTML = '📞';
+                }, 5000);
+            }
+        }
+
+        // Allow Enter key to trigger call
+        document.getElementById('myNumber').addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') {
+                callMe();
+            }
+        });
+    </script>
+</body>
+</html>
