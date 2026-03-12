@@ -715,7 +715,7 @@ function getInterruptStats(callData) {
 }
 
 // Stop current TTS for a call - TRUE REAL-TIME INTERRUPTION
-function stopCurrentTTS(callSid) {
+async function stopCurrentTTS(callSid) {
   console.log(`🔇 TRUE REAL-TIME INTERRUPTION - Stopping TTS for call: ${callSid}`);
   
   // Stop any ongoing AI generation IMMEDIATELY
@@ -785,7 +785,10 @@ function stopCurrentTTS(callSid) {
     callData.mediaChunk = 1;  // Reset chunk counter
   }
   
-  console.log('   ✅ TTS stopped immediately - audio playback cleared - ready for new response');
+  console.log('   ⏳ Waiting 300ms for audio buffer to clear completely...');
+  // CRITICAL FIX: Wait for Smartflo buffer to actually clear before continuing
+  await new Promise(resolve => setTimeout(resolve, 300));
+  console.log('   ✅ Buffer cleared - ready for new response without audio breaks');
 }
 
 // Initialize persistent Sarvam WebSocket for the call (OPTIMIZED for minimal latency)
@@ -1148,7 +1151,7 @@ async function startTranscribeStream(callSid, streamSid, ws, callData, perfTimes
                 console.log('   ✅ INTERRUPT ALLOWED - Stopping TTS immediately');
                 console.log('   ⏸️ PAUSING to listen to user...');
                 trackInterrupt(callData, transcript);
-                stopCurrentTTS(callSid);
+                await stopCurrentTTS(callSid);  // ← Added await
               } else {
                 console.log('   ❌ INTERRUPT BLOCKED - Continuing agent speech');
               }
@@ -1189,7 +1192,7 @@ async function startTranscribeStream(callSid, streamSid, ws, callData, perfTimes
               
               // AGGRESSIVE INTERRUPTION: Stop TTS immediately (don't check if it's running)
               console.log('   🔇 Stopping any ongoing TTS immediately...');
-              stopCurrentTTS(callSid);
+              await stopCurrentTTS(callSid);  // ← Added await
               
               isProcessingResponse = true;  // Set lock
               
