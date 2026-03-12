@@ -65,6 +65,15 @@ const activeCalls = new Map();
 // TTS interruption control
 const ttsControllers = new Map(); // Map callSid -> AbortController for TTS interruption
 
+// VOCODE-INSPIRED: Interruption Configuration
+const INTERRUPT_CONFIG = {
+  minConfidence: 0.5,              // Minimum confidence to trigger interrupt (0.0-1.0)
+  minInterruptDurationMs: 300,     // Minimum speech duration to interrupt (ms)
+  maxInterruptsPerCall: 15,        // Maximum interrupts allowed per call
+  rapidInterruptThresholdMs: 800,  // Minimum time between interrupts (ms)
+  enableLogging: true              // Enable detailed interrupt logging
+};
+
 // AI Agent Configuration (CONVERSATIONAL: Natural, Detailed, Helpful)
 const AGENT_PROMPT = `You are a professional customer support agent for Kaia Bags. You call customers to confirm orders.
 
@@ -364,7 +373,16 @@ wss.on('connection', (ws, req) => {
           sarvamConnectionPromise: null,  // Promise for waiting connections
           ttsQueue: [],  // Queue for TTS chunks
           audioBuffer: [],  // Buffer for audio chunks
-          isInterrupted: false  // Flag to stop audio on interruption
+          isInterrupted: false,  // Flag to stop audio on interruption
+          // VOCODE-INSPIRED: Interrupt tracking
+          interruptStats: {
+            count: 0,
+            timestamps: [],
+            lastInterruptTime: null,
+            successfulInterrupts: 0,
+            ignoredInterrupts: 0,
+            reasons: []  // Track why interrupts were ignored
+          }
         });
         
         // Check if this is an outbound call with custom context
@@ -487,6 +505,20 @@ wss.on('connection', (ws, req) => {
           const duration = (new Date() - callData.startTime) / 1000;
           console.log(`   Duration: ${duration.toFixed(2)}s`);
           
+          // VOCODE-INSPIRED: Log interrupt statistics
+          if (callData.interruptStats) {
+            const stats = getInterruptStats(callData);
+            console.log('\n📊 ===== INTERRUPT STATISTICS =====');
+            console.log(`   Total Interrupts: ${stats.totalInterrupts}`);
+            console.log(`   Successful: ${stats.successfulInterrupts}`);
+            console.log(`   Blocked: ${stats.ignoredInterrupts}`);
+            console.log(`   Interrupts/min: ${stats.interruptsPerMinute}`);
+            console.log(`   Call Duration: ${stats.callDurationSeconds}s`);
+            if (stats.blockReasons.length > 0) {
+              console.log('   Recent Blocks:', stats.blockReasons.map(r => r.reason).join(', '));
+            }
+          }
+          
           // Close persistent Sarvam WebSocket
           if (callData.sarvamWs && callData.sarvamWs.readyState === WebSocket.OPEN) {
             console.log('   🔌 Closing persistent Sarvam WebSocket...');
@@ -601,6 +633,87 @@ function cleanTextForTTS(text) {
     .trim();
 }
 
+// VOCODE-INSPIRED: Check if interrupt should be allowed
+function shouldAllowInterrupt(callData, confidence = 1.0, transcriptLength = 0) {
+  const stats = callData.interruptStats;
+  const now = Date.now();
+  
+  // Check 1: Max interrupts per call
+  if (stats.count >= INTERRUPT_CONFIG.maxInterruptsPerCall) {
+    if (INTERRUPT_CONFIG.enableLogging) {
+      console.log(`   ⚠️ INTERRUPT BLOCKED: Max interrupts reached (${stats.count}/${INTERRUPT_CONFIG.maxInterruptsPerCall})`);
+    }
+    stats.ignoredInterrupts++;
+    stats.reasons.push({ time: now, reason: 'max_interrupts_reached' });
+    return false;
+  }
+  
+  // Check 2: Confidence threshold
+  if (confidence < INTERRUPT_CONFIG.minConfidence) {
+    if (INTERRUPT_CONFIG.enableLogging) {
+      console.log(`   ⚠️ INTERRUPT BLOCKED: Low confidence (${confidence.toFixed(2)} < ${INTERRUPT_CONFIG.minConfidence})`);
+    }
+    stats.ignoredInterrupts++;
+    stats.reasons.push({ time: now, reason: 'low_confidence', confidence });
+    return false;
+  }
+  
+  // Check 3: Rapid interrupts (prevent spam)
+  if (stats.lastInterruptTime && (now - stats.lastInterruptTime) < INTERRUPT_CONFIG.rapidInterruptThresholdMs) {
+    if (INTERRUPT_CONFIG.enableLogging) {
+      console.log(`   ⚠️ INTERRUPT BLOCKED: Too rapid (${now - stats.lastInterruptTime}ms < ${INTERRUPT_CONFIG.rapidInterruptThresholdMs}ms)`);
+    }
+    stats.ignoredInterrupts++;
+    stats.reasons.push({ time: now, reason: 'too_rapid', timeSinceLastMs: now - stats.lastInterruptTime });
+    return false;
+  }
+  
+  // Check 4: Minimum transcript length (avoid noise)
+  if (transcriptLength > 0 && transcriptLength < 3) {
+    if (INTERRUPT_CONFIG.enableLogging) {
+      console.log(`   ⚠️ INTERRUPT BLOCKED: Transcript too short (${transcriptLength} chars)`);
+    }
+    stats.ignoredInterrupts++;
+    stats.reasons.push({ time: now, reason: 'transcript_too_short', length: transcriptLength });
+    return false;
+  }
+  
+  return true;
+}
+
+// VOCODE-INSPIRED: Track successful interrupt
+function trackInterrupt(callData, transcription = '') {
+  const stats = callData.interruptStats;
+  const now = Date.now();
+  
+  stats.count++;
+  stats.successfulInterrupts++;
+  stats.timestamps.push(now);
+  stats.lastInterruptTime = now;
+  
+  if (INTERRUPT_CONFIG.enableLogging) {
+    console.log(`   📊 INTERRUPT #${stats.count}: "${transcription}"`);
+    console.log(`   📈 Stats: ${stats.successfulInterrupts} successful, ${stats.ignoredInterrupts} blocked`);
+  }
+}
+
+// VOCODE-INSPIRED: Get interrupt statistics
+function getInterruptStats(callData) {
+  const stats = callData.interruptStats;
+  const callDuration = (Date.now() - callData.startTime.getTime()) / 1000;
+  
+  return {
+    totalInterrupts: stats.count,
+    successfulInterrupts: stats.successfulInterrupts,
+    ignoredInterrupts: stats.ignoredInterrupts,
+    interruptsRemaining: INTERRUPT_CONFIG.maxInterruptsPerCall - stats.count,
+    callDurationSeconds: callDuration.toFixed(1),
+    interruptsPerMinute: (stats.count / (callDuration / 60)).toFixed(2),
+    lastInterruptTime: stats.lastInterruptTime,
+    blockReasons: stats.reasons.slice(-5)  // Last 5 block reasons
+  };
+}
+
 // Stop current TTS for a call - TRUE REAL-TIME INTERRUPTION
 function stopCurrentTTS(callSid) {
   console.log(`🔇 TRUE REAL-TIME INTERRUPTION - Stopping TTS for call: ${callSid}`);
@@ -620,9 +733,21 @@ function stopCurrentTTS(callSid) {
     callData.isInterrupted = true;
     console.log('   🚫 Marked as interrupted - stopping audio stream');
     
-    // Send PAUSE marker to Smartflo to stop audio playback immediately
+    // CRITICAL: Send CLEAR command to Smartflo to stop ALL queued audio immediately
     if (callData.ws && callData.streamSid) {
-      console.log('   ⏸️ Sending PAUSE marker to stop audio playback...');
+      console.log('   🧹 Sending CLEAR command to stop ALL audio playback immediately...');
+      try {
+        callData.ws.send(JSON.stringify({
+          event: 'clear',
+          streamSid: callData.streamSid
+        }));
+        console.log('   ✅ CLEAR command sent - all audio stopped immediately');
+      } catch (e) {
+        console.log('   ⚠️ Error sending clear command:', e.message);
+      }
+      
+      // Also send PAUSE marker as backup
+      console.log('   ⏸️ Sending PAUSE marker as backup...');
       try {
         callData.ws.send(JSON.stringify({
           event: 'mark',
@@ -631,7 +756,7 @@ function stopCurrentTTS(callSid) {
             name: 'pause_audio'
           }
         }));
-        console.log('   ✅ PAUSE marker sent - audio should stop immediately');
+        console.log('   ✅ PAUSE marker sent');
       } catch (e) {
         console.log('   ⚠️ Error sending pause marker:', e.message);
       }
@@ -660,7 +785,7 @@ function stopCurrentTTS(callSid) {
     callData.mediaChunk = 1;  // Reset chunk counter
   }
   
-  console.log('   ✅ TTS stopped immediately - audio playback paused - ready for new response');
+  console.log('   ✅ TTS stopped immediately - audio playback cleared - ready for new response');
 }
 
 // Initialize persistent Sarvam WebSocket for the call (OPTIMIZED for minimal latency)
@@ -1015,10 +1140,18 @@ async function startTranscribeStream(callSid, streamSid, ws, callData, perfTimes
               firstPartialReceived = true;
               console.log('   ⚡ First partial:', Date.now() - perfTimestamps.T1_audioReceived, 'ms');
               
-              // AGGRESSIVE INTERRUPTION: Stop TTS immediately on ANY speech
-              console.log('   🎤 Speech detected - IMMEDIATE INTERRUPTION');
-              console.log('   ⏸️ PAUSING to listen to user...');
-              stopCurrentTTS(callSid);
+              // VOCODE-INSPIRED: Validate interrupt before allowing
+              console.log('   🎤 Speech detected - checking interrupt conditions...');
+              console.log('   📊 Confidence:', confidence.toFixed(2), '| Transcript:', transcript.substring(0, 20));
+              
+              if (shouldAllowInterrupt(callData, confidence, transcript.length)) {
+                console.log('   ✅ INTERRUPT ALLOWED - Stopping TTS immediately');
+                console.log('   ⏸️ PAUSING to listen to user...');
+                trackInterrupt(callData, transcript);
+                stopCurrentTTS(callSid);
+              } else {
+                console.log('   ❌ INTERRUPT BLOCKED - Continuing agent speech');
+              }
             }
             
             // Final result (after silence detected by Transcribe)
